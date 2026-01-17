@@ -88,7 +88,16 @@ class SentenceEditor(tk.Tk):
             return
         self.matches = []
         for span in sent_spans:
-            if all(term in span.sent.lower() for term in terms):
+            sent_lower = span.sent.lower()
+            last_pos = -1
+            match = True
+            for term in terms:
+                pos = sent_lower.find(term, last_pos + 1)
+                if pos == -1:
+                    match = False
+                    break
+                last_pos = pos
+            if match:
                 self.matches.append((span.sent, span.start, span.end))
         self.listbox.delete(0, tk.END)
         for i, (sent, _, _) in enumerate(self.matches):
@@ -156,10 +165,18 @@ class SentenceEditor(tk.Tk):
             display = display[:117] + "..."
         self.listbox.delete(self.current_index)
         self.listbox.insert(self.current_index, f"{self.current_index+1:4d}: {display}")
-        self.listbox.selection_set(self.current_index)
         for i in range(self.current_index + 1, len(self.matches)):
             sent, start, end = self.matches[i]
             self.matches[i] = (sent, start + length_diff, end + length_diff)
+        if self.current_index < len(self.matches) - 1:
+            self.current_index += 1
+            self.listbox.selection_clear(0, tk.END)
+            self.listbox.selection_set(self.current_index)
+            self.listbox.see(self.current_index)
+            self.load_current()
+        else:
+            self.listbox.selection_set(self.current_index)
+            self.load_current()
 
 if __name__ == "__main__":
     app = SentenceEditor()
