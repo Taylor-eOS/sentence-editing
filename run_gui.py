@@ -6,7 +6,7 @@ class SentenceEditor(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Sentence Search and Edit Tool")
-        self.geometry("1450x800")
+        self.geometry("1450x850")
         menubar = tk.Menu(self)
         filemenu = tk.Menu(menubar, tearoff=0)
         filemenu.add_command(label="Load File", command=self.load_file)
@@ -34,8 +34,7 @@ class SentenceEditor(tk.Tk):
         text_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         self.main_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, font=("Segoe UI", 11))
         self.main_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.main_text.tag_config("match", background="yellow")
-        self.main_text.tag_config("current", background="lightgreen")
+        self.main_text.tag_config("marker", foreground="blue", font=("Segoe UI", 16, "bold"))
         edit_frame = tk.Frame(self)
         edit_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(edit_frame, text="Edit selected sentence:").pack(side=tk.LEFT)
@@ -46,10 +45,10 @@ class SentenceEditor(tk.Tk):
         tk.Button(button_frame, text="Previous", command=self.go_previous).pack(side=tk.LEFT, padx=2)
         tk.Button(button_frame, text="Next", command=self.go_next).pack(side=tk.LEFT, padx=2)
         tk.Button(button_frame, text="Replace", command=self.replace_current).pack(side=tk.LEFT, padx=2)
+        self.full_text = ""
         self.matches = []
         self.current_index = -1
         self.segmenter = pysbd.Segmenter(language="en", clean=False, char_span=True)
-        self.search_terms = []
 
     def load_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
@@ -57,6 +56,7 @@ class SentenceEditor(tk.Tk):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
+                self.full_text = content
                 self.main_text.delete("1.0", tk.END)
                 self.main_text.insert("1.0", content)
                 self.matches = []
@@ -70,26 +70,19 @@ class SentenceEditor(tk.Tk):
         path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
         if path:
             try:
-                content = self.main_text.get("1.0", "end-1c")
                 with open(path, "w", encoding="utf-8") as f:
-                    f.write(content)
+                    f.write(self.full_text)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not save file:\n{e}")
-
-    def get_current_text(self):
-        return self.main_text.get("1.0", "end-1c")
 
     def find_matches(self):
         terms = [t.strip().lower() for t in self.search_entry.get().split() if t.strip()]
         if not terms:
             self.matches = []
             self.listbox.delete(0, tk.END)
-            self.main_text.tag_remove("match", "1.0", tk.END)
             return
-        self.search_terms = terms
-        text = self.get_current_text()
         try:
-            sent_spans = self.segmenter.segment(text)
+            sent_spans = self.segmenter.segment(self.full_text)
         except:
             messagebox.showerror("Error", "Sentence segmentation failed. Check pysbd installation.")
             return
@@ -103,11 +96,8 @@ class SentenceEditor(tk.Tk):
             if len(display) > 120:
                 display = display[:117] + "..."
             self.listbox.insert(tk.END, f"{i+1:4d}: {display}")
-        self.main_text.tag_remove("match", "1.0", tk.END)
-        for _, start, end in self.matches:
-            s_idx = f"1.0 + {start}c"
-            e_idx = f"1.0 + {end}c"
-            self.main_text.tag_add("match", s_idx, e_idx)
+        self.current_index = -1
+        self.edit_text.delete("1.0", tk.END)
 
     def on_list_select(self, event):
         selection = self.listbox.curselection()
@@ -121,11 +111,17 @@ class SentenceEditor(tk.Tk):
         sent, start, end = self.matches[self.current_index]
         self.edit_text.delete("1.0", tk.END)
         self.edit_text.insert("1.0", sent)
-        s_idx = f"1.0 + {start}c"
-        e_idx = f"1.0 + {end}c"
-        self.main_text.tag_remove("current", "1.0", tk.END)
-        self.main_text.tag_add("current", s_idx, e_idx)
-        self.main_text.see(s_idx)
+        self.main_text.tag_remove("marker", "1.0", tk.END)
+        prefix = self.full_text[:start].split('\n')[-1]
+        search_text = prefix + sent[:min(50, len(sent))]
+        search_start = "1.0"
+        pos = self.main_text.search(search_text, search_start, tk.END)
+        if pos:
+            line_start = pos.split('.')[0] + '.0'
+            self.main_text.see(line_start)
+            marker_pos = f"{pos}+{len(prefix)}c"
+            self.main_text.insert(marker_pos, "● ")
+            self.main_text.tag_add("marker", marker_pos, f"{marker_pos}+2c")
 
     def go_previous(self):
         if self.current_index > 0:
@@ -148,42 +144,22 @@ class SentenceEditor(tk.Tk):
             return
         new_sent = self.edit_text.get("1.0", "end-1c")
         old_sent, old_start, old_end = self.matches[self.current_index]
+        self.full_text = self.full_text[:old_start] + new_sent + self.full_text[old_end:]
+        self.main_text.delete("1.0", tk.END)
+        self.main_text.insert("1.0", self.full_text)
         old_len = old_end - old_start
         new_len = len(new_sent)
         length_diff = new_len - old_len
-        s_idx = f"1.0 + {old_start}c"
-        e_idx = f"1.0 + {old_end}c"
-        self.main_text.delete(s_idx, e_idx)
-        self.main_text.insert(s_idx, new_sent)
-        still_matches = all(term in new_sent.lower() for term in self.search_terms)
-        if still_matches:
-            self.matches[self.current_index] = (new_sent, old_start, old_start + new_len)
-            display = new_sent.replace("\n", " ").replace("\r", " ")
-            if len(display) > 120:
-                display = display[:117] + "..."
-            self.listbox.delete(self.current_index)
-            self.listbox.insert(self.current_index, f"{self.current_index+1:4d}: {display}")
-            self.listbox.selection_set(self.current_index)
-        else:
-            self.matches.pop(self.current_index)
-            self.listbox.delete(self.current_index)
-            if self.current_index >= len(self.matches):
-                self.current_index = len(self.matches) - 1
-            if self.current_index >= 0:
-                self.listbox.selection_set(self.current_index)
+        self.matches[self.current_index] = (new_sent, old_start, old_start + new_len)
+        display = new_sent.replace("\n", " ").replace("\r", " ")
+        if len(display) > 120:
+            display = display[:117] + "..."
+        self.listbox.delete(self.current_index)
+        self.listbox.insert(self.current_index, f"{self.current_index+1:4d}: {display}")
+        self.listbox.selection_set(self.current_index)
         for i in range(self.current_index + 1, len(self.matches)):
             sent, start, end = self.matches[i]
             self.matches[i] = (sent, start + length_diff, end + length_diff)
-        self.main_text.tag_remove("match", "1.0", tk.END)
-        self.main_text.tag_remove("current", "1.0", tk.END)
-        for _, start, end in self.matches:
-            s_idx = f"1.0 + {start}c"
-            e_idx = f"1.0 + {end}c"
-            self.main_text.tag_add("match", s_idx, e_idx)
-        if self.current_index >= 0 and self.current_index < len(self.matches):
-            self.load_current()
-        else:
-            self.edit_text.delete("1.0", tk.END)
 
 if __name__ == "__main__":
     app = SentenceEditor()
